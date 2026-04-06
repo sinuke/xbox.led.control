@@ -1,4 +1,5 @@
 using System.Runtime.InteropServices;
+using Microsoft.Win32.SafeHandles;
 
 namespace XboxLedControl;
 
@@ -20,6 +21,7 @@ namespace XboxLedControl;
 internal static class GipDirectSender
 {
     private const uint IOCTL_GIP_REENUMERATE = 0x40001CD0;
+    private const int  ERROR_NO_MORE_ITEMS   = 259;
 
     /// <summary>
     /// Send LED command via \\.\XboxGIP. Returns true if WriteFile succeeded.
@@ -77,15 +79,14 @@ internal static class GipDirectSender
         Array.Copy(mac, buf, 6);
         buf[8]  = rawGip[0];                        // MessageType
         buf[9]  = rawGip[1];                        // Flags
-        buf[10] = rawGip[2];                        // SequenceId (0x00 for LED bypasses dedup; non-zero for other commands)
+        buf[10] = rawGip[2];                        // SequenceId (0x00 for LED bypasses dedup)
         buf[12] = payloadLen;                       // PayloadLen LE byte 0
         // [13-19] = 0x00
-        Array.Copy(rawGip, 4, buf, 20, payloadLen); // payload (trailing bytes stay 0x00)
+        Array.Copy(rawGip, 4, buf, 20, payloadLen); // payload
         return buf;
     }
 
-    private static byte[]? ReadMac(
-        Microsoft.Win32.SafeHandles.SafeFileHandle hFile, int timeoutMs, bool debug = false)
+    private static byte[]? ReadMac(SafeFileHandle hFile, int timeoutMs, bool debug = false)
     {
         if (debug) Console.WriteLine("  Reading controller device ID...");
         var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
@@ -98,7 +99,7 @@ internal static class GipDirectSender
             if (!ok)
             {
                 int err = Marshal.GetLastWin32Error();
-                if (err == 259)  // ERROR_NO_MORE_ITEMS
+                if (err == ERROR_NO_MORE_ITEMS)
                 {
                     System.Threading.Thread.Sleep(20);
                     continue;

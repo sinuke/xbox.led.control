@@ -19,13 +19,13 @@ public enum GipLedPattern : byte
 /// <summary>
 /// Builds the GIP Guide Button LED command per [MS-GIPUSB] §3.1.5.5.7 (Table 41).
 ///
-/// GIP frame (7 bytes — the payload the device receives):
+/// GIP frame (7 bytes):
 ///
 ///   Message Header  (4 bytes, §2.2.10, Table 12)
 ///   ┌──────────────────────────────────────────────────────────────────┐
 ///   │ Byte 0 │ MessageType = 0x0A  (Command class bits7:5=000, msg #10)│
 ///   │ Byte 1 │ Flags       = 0x20  (System=1, no ACK, primary device)  │
-///   │ Byte 2 │ SequenceId           wrapping 0x01–0xFF (0x00 reserved) │
+///   │ Byte 2 │ SequenceId  = 0x00  (bypasses driver deduplication)     │
 ///   │ Byte 3 │ PayloadLen  = 0x03  (3 bytes)                           │
 ///   └──────────────────────────────────────────────────────────────────┘
 ///
@@ -35,9 +35,6 @@ public enum GipLedPattern : byte
 ///   │ Byte 5 │ Pattern     (GipLedPattern enum)                        │
 ///   │ Byte 6 │ Intensity   0–47 (%)                                    │
 ///   └──────────────────────────────────────────────────────────────────┘
-///
-/// HID output report (8 bytes): prepends a 0x00 report-ID byte required by
-/// HidD_SetOutputReport / WriteFile on HID devices (stripped by driver).
 ///
 /// Flags = 0x20 decoded (§2.2.10.2, Table 14):
 ///   bit 7 (Fragment)       = 0  → single packet, not fragmented
@@ -49,18 +46,8 @@ public enum GipLedPattern : byte
 /// </summary>
 public static class GipLedCommand
 {
-    private static byte _sequence = 1;
-
-    private static byte NextSeq()
-    {
-        byte s = _sequence;
-        _sequence = _sequence == 0xFF ? (byte)1 : (byte)(_sequence + 1);
-        return s;
-    }
-
     /// <summary>
-    /// Raw 7-byte GIP frame — no HID report-ID prefix.
-    /// Use for WriteFile to \\.\XboxGIP or WinUSB bulk-OUT endpoint.
+    /// Raw 7-byte GIP frame for WriteFile to \\.\XboxGIP.
     /// </summary>
     public static byte[] BuildRaw(GipLedPattern pattern, byte intensity)
     {
@@ -78,27 +65,6 @@ public static class GipLedCommand
             intensity,      // Intensity 0–47 %
         ];
     }
-
-    /// <summary>
-    /// 8-byte HID output report (0x00 report-ID + 7-byte GIP frame).
-    /// Use for HidD_SetOutputReport / HidD_SetFeature.
-    /// </summary>
-    public static byte[] Build(GipLedPattern pattern, byte intensity)
-    {
-        var raw = BuildRaw(pattern, intensity);
-        var buf = new byte[1 + raw.Length];   // buf[0] = 0x00 report-ID prefix
-        raw.CopyTo(buf, 1);
-        return buf;
-    }
-
-    public static byte[] BuildOff()
-        => Build(GipLedPattern.Off, 0);
-
-    /// <summary>intensity 0–47</summary>
-    public static byte[] BuildSolid(byte intensity)
-        => intensity == 0
-            ? BuildOff()
-            : Build(GipLedPattern.On, Math.Min(intensity, (byte)47));
 
     /// <summary>
     /// Scale a user-facing 0–100 brightness value to the 0–47 intensity
