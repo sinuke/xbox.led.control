@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.InteropServices;
 using Microsoft.Win32.SafeHandles;
 
@@ -59,7 +60,7 @@ internal static class GipDirectSender
             if (debug) Console.WriteLine("  No controller announced (timeout).");
             return false;
         }
-        if (debug) Console.WriteLine($"  Device ID: {string.Join(":", mac.Select(b => $"{b:X2}"))}");
+        if (debug) Console.WriteLine($"  Device ID: {BitConverter.ToString(mac).Replace('-', ':')}");
 
         byte[] buf = BuildFrame(mac, rawGip);
         if (debug) Console.WriteLine($"  Write frame ({buf.Length}B = 20 hdr + {rawGip[3]} payload): {BitConverter.ToString(buf)}");
@@ -70,29 +71,27 @@ internal static class GipDirectSender
         return ok;
     }
 
-    private static byte[] BuildFrame(byte[] mac, byte[] rawGip)
+    internal static byte[] BuildFrame(byte[] mac, byte[] rawGip)
     {
         byte payloadLen = rawGip[3];
         // Frame size must be exactly 20 + payloadLen.
         // The driver validates frameSize - 20 == PayloadLen field; extra bytes → INVALID_PARAMETER.
         var buf = new byte[20 + payloadLen];
-        Array.Copy(mac, buf, 6);
-        buf[8]  = rawGip[0];                        // MessageType
-        buf[9]  = rawGip[1];                        // Flags
-        buf[10] = rawGip[2];                        // SequenceId (0x00 for LED bypasses dedup)
+        mac.AsSpan(0, 6).CopyTo(buf);               // Device ID
+        rawGip.AsSpan(0, 3).CopyTo(buf.AsSpan(8)); // MessageType, Flags, SequenceId
         buf[12] = payloadLen;                       // PayloadLen LE byte 0
         // [13-19] = 0x00
-        Array.Copy(rawGip, 4, buf, 20, payloadLen); // payload
+        rawGip.AsSpan(4, payloadLen).CopyTo(buf.AsSpan(20)); // payload
         return buf;
     }
 
     private static byte[]? ReadMac(SafeFileHandle hFile, int timeoutMs, bool debug = false)
     {
         if (debug) Console.WriteLine("  Reading controller device ID...");
-        var deadline = DateTime.UtcNow.AddMilliseconds(timeoutMs);
+        var sw = Stopwatch.StartNew();
         var buf = new byte[1024];
 
-        while (DateTime.UtcNow < deadline)
+        while (sw.ElapsedMilliseconds < timeoutMs)
         {
             bool ok = NativeMethods.ReadFile(hFile, buf, (uint)buf.Length, out uint bytesRead, IntPtr.Zero);
 
@@ -101,7 +100,7 @@ internal static class GipDirectSender
                 int err = Marshal.GetLastWin32Error();
                 if (err == ERROR_NO_MORE_ITEMS)
                 {
-                    System.Threading.Thread.Sleep(20);
+                    Thread.Sleep(20);
                     continue;
                 }
                 if (debug) Console.WriteLine($"  ReadFile error {err}");
@@ -111,7 +110,7 @@ internal static class GipDirectSender
             if (bytesRead >= 6)
                 return buf[0..6];
 
-            System.Threading.Thread.Sleep(10);
+            Thread.Sleep(10);
         }
 
         return null;

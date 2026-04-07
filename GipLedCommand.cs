@@ -49,12 +49,7 @@ public static class GipLedCommand
     /// <summary>
     /// Raw 7-byte GIP frame for WriteFile to \\.\XboxGIP.
     /// </summary>
-    public static byte[] BuildRaw(GipLedPattern pattern, byte intensity)
-    {
-        if (intensity > 47)
-            throw new ArgumentOutOfRangeException(nameof(intensity), "0–47 per MS-GIPUSB §3.1.5.5.7");
-
-        return
+    public static byte[] BuildRaw(GipLedPattern pattern, byte intensity) =>
         [
             0x0A,           // MessageType: Command class (bits 7:5 = 000), message #10 (bits 4:0 = 01010)
             0x20,           // Flags: System=1, no ACK, not fragmented, primary device
@@ -64,12 +59,11 @@ public static class GipLedCommand
             (byte)pattern,  // LED pattern (Table 42)
             intensity,      // Intensity 0–47 %
         ];
-    }
 
     /// <summary>
     /// Scale a user-facing 0–100 brightness value to the 0–47 intensity
     /// range defined in the spec, preserving 0 → Off and 100 → max.
     /// </summary>
     public static byte ScaleIntensity(byte brightness100)
-        => (byte)Math.Round(brightness100 * 47.0 / 100.0);
+        => (byte)Math.Round(brightness100 * 47.0 / 100.0, MidpointRounding.AwayFromZero);
 }
