@@ -71,7 +71,7 @@ internal static class GipDirectSender
         return ok;
     }
 
-    private static byte[] BuildFrame(byte[] mac, byte[] rawGip)
+    internal static byte[] BuildFrame(byte[] mac, byte[] rawGip)
     {
         byte payloadLen = rawGip[3];
         // Frame size must be exactly 20 + payloadLen.
