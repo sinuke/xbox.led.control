@@ -101,7 +101,7 @@ jobs:
         run: >
           dotnet publish XboxLedControl.csproj
           -c Release -r win-x64
-          --self-contained true
+          --self-contained
           -p:PublishSingleFile=true
           -o publish/standalone
 
@@ -109,7 +109,7 @@ jobs:
         run: >
           dotnet publish XboxLedControl.csproj
           -c Release -r win-x64
-          --self-contained false
+          --no-self-contained
           -p:PublishSingleFile=true
           -o publish/framework
 
@@ -119,6 +119,8 @@ jobs:
         run: |
           cp publish/standalone/XboxLedControl.exe publish/XboxLedControl-standalone.exe
           cp publish/framework/XboxLedControl.exe  publish/XboxLedControl.exe
+          echo "standalone : $(du -h publish/XboxLedControl-standalone.exe | cut -f1)"
+          echo "framework  : $(du -h publish/XboxLedControl.exe            | cut -f1)"
 
       - name: Upload artifacts
         uses: actions/upload-artifact@v7
