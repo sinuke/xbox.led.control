@@ -13,7 +13,7 @@ using XboxLedControl;
  */
 
 bool debug     = args.Any(a => a.Equals("--debug", StringComparison.OrdinalIgnoreCase));
-string[] valueArgs = args.Where(a => !a.StartsWith("--")).ToArray();
+string[] valueArgs = args.Where(a => !a.StartsWith("--", StringComparison.Ordinal)).ToArray();
 
 if (valueArgs.Length == 0)
 {
@@ -23,8 +23,12 @@ if (valueArgs.Length == 0)
     return 1;
 }
 
-string cmdArg = valueArgs[0].Trim().ToLowerInvariant();
-var (pattern, intensity) = ParseLedArg(cmdArg);
+string cmdArg = valueArgs[0].ToLowerInvariant();
+var result = ParseLedArg(cmdArg);
+if (result is null)
+    return 1;
+
+var (pattern, intensity) = result.Value;
 byte[] frame = GipLedCommand.BuildRaw(pattern, intensity);
 
 if (debug)
@@ -40,7 +44,7 @@ if (!ok)
     Console.Error.WriteLine("Failed: no USB Xbox controller found via \\\\.\\XboxGIP.");
 return ok ? 0 : 1;
 
-static (GipLedPattern pattern, byte intensity) ParseLedArg(string arg) =>
+static (GipLedPattern pattern, byte intensity)? ParseLedArg(string arg) =>
     arg switch
     {
         "off"  or "0"                            => (GipLedPattern.Off,            0),
@@ -51,13 +55,23 @@ static (GipLedPattern pattern, byte intensity) ParseLedArg(string arg) =>
         "slowblink" or "slow"  or "blink2"       => (GipLedPattern.SlowBlink,     47),
         "charging"  or "charge"                  => (GipLedPattern.ChargingBlink, 47),
         "full" or "max" or "100"                 => (GipLedPattern.On,            47),
-        _ when byte.TryParse(arg, out byte b)    => b == 0
-                                                     ? (GipLedPattern.Off, (byte)0)
-                                                     : (GipLedPattern.On, GipLedCommand.ScaleIntensity(b)),
+        _ when int.TryParse(arg, out int n) && n < 0
+                                                 => InvalidArg(arg, "brightness must be 0-100"),
+        _ when byte.TryParse(arg, out byte b)    => b > 100
+                                                     ? InvalidArg(arg, "brightness must be 0-100")
+                                                     : b == 0
+                                                         ? (GipLedPattern.Off, (byte)0)
+                                                         : (GipLedPattern.On, GipLedCommand.ScaleIntensity(b)),
         _                                        => FallbackOff(arg),
     };
 
-static (GipLedPattern, byte) FallbackOff(string a)
+static (GipLedPattern, byte)? InvalidArg(string a, string reason)
+{
+    Console.Error.WriteLine($"Invalid value '{a}': {reason}.");
+    return null;
+}
+
+static (GipLedPattern, byte)? FallbackOff(string a)
 {
     Console.Error.WriteLine($"Unknown argument '{a}', defaulting to off.");
     return (GipLedPattern.Off, 0);
