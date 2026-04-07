@@ -44,15 +44,14 @@ jobs:
           fail-on-error: true
 
   # ─────────────────────────────────────────
-  # Job 2: Build → Release (master) or Artifact (branches/PRs)
-  # Runs only if all tests passed
+  # Job 2: Build — compile + upload artifacts
   # ─────────────────────────────────────────
   build:
-    name: "Build & Publish — ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}"
+    name: "Build — ${{ github.event_name == 'pull_request' && format('PR #{0}', github.event.pull_request.number) || github.ref_name }}"
     needs: test
     runs-on: windows-latest
-    permissions:
-      contents: write   # required for gh release create on master
+    outputs:
+      tag: ${{ steps.ver.outputs.tag }}
 
     steps:
       - uses: actions/checkout@v6
@@ -79,14 +78,12 @@ jobs:
           if [[ "${{ github.ref }}" == "refs/heads/master" ]]; then
             COUNT=$(git tag -l "v1.0.[0-9]*" | wc -l | xargs)
             TAG="v1.0.$COUNT"
-            IS_RELEASE=true
 
           elif [[ "${{ github.event_name }}" == "pull_request" ]]; then
             PR="${{ github.event.number }}"
             COUNT=$(git tag -l "pr-$PR-[0-9]*" | wc -l | xargs)
             IDX=$((COUNT + 1))
             TAG="pr-$PR-$IDX"
-            IS_RELEASE=false
 
           else
             BRANCH="${{ github.ref_name }}"
@@ -94,14 +91,11 @@ jobs:
             COUNT=$(git tag -l "${SAFE}-[0-9]*" | wc -l | xargs)
             IDX=$((COUNT + 1))
             TAG="$SAFE-$IDX"
-            IS_RELEASE=false
           fi
 
-          echo "tag=$TAG"             >> $GITHUB_OUTPUT
-          echo "is_release=$IS_RELEASE" >> $GITHUB_OUTPUT
-          echo "Resolved tag: $TAG  (is_release=$IS_RELEASE)"
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "Resolved tag: $TAG"
 
-      # ── Build ────────────────────────────────────────────────────────────
       - name: Publish standalone (self-contained, no .NET required)
         run: >
           dotnet publish XboxLedControl.csproj
@@ -125,22 +119,7 @@ jobs:
           cp publish/standalone/XboxLedControl.exe publish/XboxLedControl-standalone.exe
           cp publish/framework/XboxLedControl.exe  publish/XboxLedControl.exe
 
-      # ── master → GitHub Release ──────────────────────────────────────────
-      - name: Create GitHub Release
-        if: steps.ver.outputs.is_release == 'true'
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          gh release create "${{ steps.ver.outputs.tag }}" \
-            --title "${{ steps.ver.outputs.tag }}" \
-            --notes "Built from \`${{ github.ref_name }}\` @ \`${{ github.sha }}\`" \
-            "publish/XboxLedControl-standalone.exe#XboxLedControl-standalone.exe" \
-            "publish/XboxLedControl.exe#XboxLedControl.exe"
-
-      # ── branches/PRs → workflow artifact + job summary ───────────────────
       - name: Upload artifacts
-        if: steps.ver.outputs.is_release == 'false'
         uses: actions/upload-artifact@v7
         with:
           name: ${{ steps.ver.outputs.tag }}
@@ -148,8 +127,9 @@ jobs:
             publish/XboxLedControl-standalone.exe
             publish/XboxLedControl.exe
 
+      # Write summary for branches/PRs — master gets a release page instead
       - name: Write job summary
-        if: steps.ver.outputs.is_release == 'false'
+        if: github.ref != 'refs/heads/master'
         shell: bash
         run: |
           RUN_URL="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
@@ -165,3 +145,33 @@ jobs:
           EOF
           echo "" >> $GITHUB_STEP_SUMMARY
           echo "[Download artifacts from this run]($RUN_URL)" >> $GITHUB_STEP_SUMMARY
+
+  # ─────────────────────────────────────────
+  # Job 3: Publish — GitHub Release (master only)
+  # ─────────────────────────────────────────
+  publish:
+    name: "Publish — ${{ github.ref_name }}"
+    needs: build
+    if: github.ref == 'refs/heads/master'
+    runs-on: windows-latest
+    permissions:
+      contents: write   # required to create GitHub Releases
+
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v7
+        with:
+          name: ${{ needs.build.outputs.tag }}
+          path: artifacts
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          gh release create "${{ needs.build.outputs.tag }}" \
+            --repo "${{ github.repository }}" \
+            --title "${{ needs.build.outputs.tag }}" \
+            --notes "Built from \`${{ github.ref_name }}\` @ \`${{ github.sha }}\`" \
+            "artifacts/XboxLedControl-standalone.exe#XboxLedControl-standalone.exe" \
+            "artifacts/XboxLedControl.exe#XboxLedControl.exe"
